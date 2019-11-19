@@ -17,17 +17,14 @@ int main(int argc, char *argv[])
     char in_buff[MESSAGE_LEN] = {
         0,
     }; // 接收缓冲区
-
+    // step1： 创建socket
     socket_fd = socket(PF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1)
     {
         std::cout << "failed to create socket!" << std::endl;
         exit(-1);
     }
-    /* Set socket FD's option OPTNAME at protocol level LEVEL
-   to *OPTVAL (which is OPTLEN bytes long).
-   Returns 0 on success, -1 for errors.  */
-    ret = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR,
+    ret = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, // 套接字参数，地址复用
                      &on, sizeof(on));
     if (ret == -1)
     {
@@ -37,12 +34,14 @@ int main(int argc, char *argv[])
     localaddr.sin_port = PORT;
     localaddr.sin_addr.s_addr = INADDR_ANY;
     bzero(&(localaddr.sin_zero), 8);
+    // step2： bind（）
     ret = bind(socket_fd, (struct sockaddr *)&localaddr, sizeof(struct sockaddr));
     if (ret == -1)
     {
         std::cout << "failed to bind " << std::endl;
         exit(-1);
     }
+    // step3： listen（）
     ret = listen(socket_fd, backlog);
     if (ret == -1)
     {
@@ -51,13 +50,14 @@ int main(int argc, char *argv[])
     }
     for (;;)
     {
+        // step4：accept
         socklen_t addr_len = sizeof(struct sockaddr);
         accept_fd = accept(socket_fd,
                            (struct sockaddr *)&remoteaddr,
                            &addr_len);
-        int pid = fork();
         for (;;)
         {
+            // step5： recv
             ret = recv(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
             if (ret == 0) // 说明没数据了
             {
@@ -65,9 +65,10 @@ int main(int argc, char *argv[])
                 break;
             }
             std::cout << "receive:" << in_buff << std::endl;
-            // 返回客户端
+            // step6： return send
             send(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
         }
+        // step7： close()
         close(accept_fd);
     }
     close(socket_fd);

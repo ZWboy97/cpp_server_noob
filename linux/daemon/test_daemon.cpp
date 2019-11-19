@@ -10,8 +10,9 @@ int main(int argc, char *argcs[])
     if (daemon(0, 0) == -1)
     {
         std::cout << "error" << std::endl;
-        exit(1);
+        exit(-1);
     }
+    // 以上代码便可以实现将进程切换到后台运行，之后再执行其他语句
     while (1)
     {
         sleep(1);

@@ -4,12 +4,14 @@
 #include <fcntl.h>  // for open
 void daemonize()
 {
-    int fd;
-    pid_t pid;    // 子进程的进程pid
+    /*step1: fork一个子进程*/
+    int fd;       // file descriptionor
+    pid_t pid;    // 进程id
     pid = fork(); // 当前进程创建一个子进程，pid为子进程的id
     if (pid < 0)
     {
         std::cout << "can't create suprocess!" << std::endl;
+        exit(-1);
     }
     else
     {
@@ -18,10 +20,10 @@ void daemonize()
             exit(0); // 父进程退出，子进程成为孤儿进程，被init进程接管
         }
     }
-    // 设置sid，建立进程会话
-    setsid();
-    // 切换工作目录到根目录
-    if (chdir("/") < 0)
+    /*strp2: 建立新的进程会话*/
+    setsid(); //调用setsid来创建新的进程会话。这使得daemon进程成为会话首进程，脱离和terminal的关联。
+    /*step3： 切换工作目录到根目录*/
+    if (chdir("/") < 0) // 将当前工作目录切换到根目录。父进程继承过来的当前目录可能mount在一个文件系统上
     {
         std::cout << "can't change dir!" << std::endl;
         exit(-1);
