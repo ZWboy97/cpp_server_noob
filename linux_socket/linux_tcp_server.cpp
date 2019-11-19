@@ -1,9 +1,9 @@
 #include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <stdlib.h>
-#include <unistd.h> // for close()
-#include <string.h> // for bzero()
+#include <sys/socket.h> // for socket(),setsockopt
+#include <netinet/in.h> // for struct sockaddr_in
+#include <stdlib.h>     // for exit()
+#include <unistd.h>     // for close()
+#include <string.h>     // for bzero()
 #define PORT 8881
 #define MESSAGE_LEN 1024
 int main(int argc, char *argv[])
@@ -56,22 +56,19 @@ int main(int argc, char *argv[])
                            (struct sockaddr *)&remoteaddr,
                            &addr_len);
         int pid = fork();
-        if (pid == 0)
+        for (;;)
         {
-            for (;;)
+            ret = recv(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
+            if (ret == 0) // 说明没数据了
             {
-                ret = recv(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
-                if (ret == 0) // 说明没数据了
-                {
-                    std::cout << "recv finish，end！ " << std::endl;
-                    break;
-                }
-                std::cout << "receive:" << in_buff << std::endl;
-                // 返回客户端
-                send(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
+                std::cout << "recv finish，end！ " << std::endl;
+                break;
             }
-            close(accept_fd);
+            std::cout << "receive:" << in_buff << std::endl;
+            // 返回客户端
+            send(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
         }
+        close(accept_fd);
     }
     close(socket_fd);
     return 0;
