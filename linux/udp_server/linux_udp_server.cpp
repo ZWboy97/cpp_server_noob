@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
         {
             recv_buf[n] = 0; //转为字符串
             std::cout << "receive data:" << recv_buf << std::endl;
-            n = sendto(socket_fd, send_buf, BUFFER_SIZE, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
+            n = sendto(socket_fd, recv_buf, BUFFER_SIZE, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
             if (n < 0)
             {
                 std::cout << "send error!" << std::endl;
