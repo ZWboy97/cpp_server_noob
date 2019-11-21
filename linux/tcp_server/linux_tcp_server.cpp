@@ -12,6 +12,7 @@ int main(int argc, char *argv[])
     int on = 1;
     int socket_fd, accept_fd;
     int backlog = 10; //缓冲长度，与并发量相关
+    pid_t pid;
     struct sockaddr_in localaddr, remoteaddr;
 
     char in_buff[MESSAGE_LEN] = {
@@ -54,23 +55,31 @@ int main(int argc, char *argv[])
         socklen_t addr_len = sizeof(struct sockaddr);
         accept_fd = accept(socket_fd,
                            (struct sockaddr *)&remoteaddr,
-                           &addr_len);
-        for (;;)
+                           &addr_len); // 阻塞
+        // fork 一个子进程进程处理
+        pid = fork();
+        if (pid == 0) // pid为0，说明是子进程
         {
-            // step5： recv
-            ret = recv(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
-            if (ret == 0) // 说明没数据了
+            for (;;)
             {
-                std::cout << "recv finish，end！ " << std::endl;
-                break;
+                // step5： recv
+                ret = recv(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
+                if (ret == 0) // 说明没数据了
+                {
+                    std::cout << "recv finish，end！ " << std::endl;
+                    break;
+                }
+                std::cout << "receive:" << in_buff << std::endl;
+                // step6： return send
+                send(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
             }
-            std::cout << "receive:" << in_buff << std::endl;
-            // step6： return send
-            send(accept_fd, (void *)in_buff, MESSAGE_LEN, 0);
+            // step7： close()
+            close(accept_fd);
         }
-        // step7： close()
-        close(accept_fd);
     }
-    close(socket_fd);
+    if (pid != 0) // 子进程中不关闭连接
+    {
+        close(socket_fd);
+    }
     return 0;
 }
