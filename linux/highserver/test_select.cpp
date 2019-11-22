@@ -95,8 +95,7 @@ int main(int argc, char *argv[])
             }
         }
         // select，阻塞监听fd_sets中的fd，处理准备就绪的io
-        // fd_sets即是输入，也是函数输出，输出的fd_sets包括所有准备就绪的fd
-        events = select(max_fd + 1, &fd_sets, NULL, NULL, NULL);
+        // fd_sets即是输入，也是函数输出，内核态会更改fd_sets的内容        events = select(max_fd + 1, &fd_sets, NULL, NULL, NULL);
         if (events < 0)
         {
             std::cout << "failed to use select" << std::endl;

@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
             }
         }
         // select，阻塞监听fd_sets中的fd，处理准备就绪的io
-        // fd_sets即是输入，也是函数输出，输出的fd_sets包括所有准备就绪的fd
+        // fd_sets即是输入，也是函数输出，内核态会更改fd_sets的内容，这也是之后需要遍历fd_sets的原因
         events = select(max_fd + 1, &fd_sets, NULL, NULL, NULL);
         if (events < 0)
         {
@@ -267,6 +267,140 @@ int main(int argc, char *argv[])
     return 0;
 }
 ```
-## 通过epoll实现高性能网络服务器
+## 通过epoll+异步IO实现高性能网络服务器
+> [Epoll 知乎提问](https://www.zhihu.com/question/20122137/answer/14049112)
+
+##### Epoll的好处
+- 没有文件描述符限制，无1024这个限制
+- 工作效率不会随着fd的增加而下降，（select中fd增加）
+- epoll经过系统优化更高效
+
+##### Epoll的几个API
+- epoll_create(): 创建一个epoll对象，epollfd = epoll_create()
+- epoll_ctl(): 往epoll对象中增加/删除某一个流的某一个事件比如
+    - epoll_ctl(epollfd, EPOLL_CTL_ADD, socket, EPOLLIN),S缓冲区内有数据时epoll_wait返回
+    - epoll_ctl(epollfd, EPOLL_CTL_DEL, socket, EPOLLOUT);//缓冲区可写入时epoll_wait返回
+- epoll_wait(epollfd,...)等待直到注册的事件发生
+- Epoll操作
+    - EPOLL_CTL_ADD:
+    - EPOLL_CTL_MOD:
+    - EPOLL_CTL_DEL:
+- Epoll事件
+    - EPOLLET：水平触发与边缘触发的设置
+    - EPOLLIN：数据来事件
+    - EPOLLOUT：数据写事件
+    - EPOLLERR:错误事件
+    - EPOLLHUP:挂起事件
+
+##### demo
+```c++
+#include <iostream>
+#include <sys/socket.h>  // for socket(),setsockopt
+#include <netinet/in.h>  // for struct sockaddr_in
+#include <stdlib.h>      // for exit()
+#include <unistd.h>      // for close()
+#include <string.h>      // for bzero()
+#include <fcntl.h>       // for fcntl()
+#include <sys/epoll.h>   // for epoll
+#include <errno.h>       // for errno
+#define PORT 8881        // tcp 端口
+#define MESSAGE_LEN 1024 // 消息大小
+#define FD_SIZE 20       // epoll event 大小
+#define MAX_EVENTS 20
+#define TIMEOUT 500
+int main(int argc, char *argv[])
+{
+    int ret = -1;
+    int socket_fd = -1;
+    int accept_fd = -1;
+    int backlog = 10;
+    struct sockaddr_in localaddr, remoteaddr;
+    int on = 1;
+    // epoll的fd
+    int epoll_fd;
+    // 向epoll中添加fd以及其event
+    struct epoll_event event;
+    // epoll返回的事件数目
+    int event_number;
+    //epoll返回的事件列表
+    struct epoll_event events[FD_SIZE];
+
+    /*
+    * 创建socket的部分与select相同，略
+    */
+
+    // 创建epoll
+    epoll_fd = epoll_create(256);
+    // 将socket_fd的事件添加到epoll中
+    event.events = EPOLLIN;
+    event.data.fd = socket_fd;
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event); // 将侦听的事件添加
+
+    // 进入server 服务循环
+    while (1)
+    {
+        // 阻塞，返回事件数目，返回的events列表，MAX_EVENTS，最大返回的事件数目，TIMEOUT,超时时间
+        event_number = epoll_wait(epoll_fd, events, MAX_EVENTS, TIMEOUT);
+        for (int i = 0; i < event_number; i++)
+        {
+            if (events[i].data.fd == socket_fd) // 是新的连接
+            {
+                // 创建accept_fd,添加到accept_fds中，之后交给select监听
+                std::cout << "new connection, create accept_fd!" << std::endl;
+                socklen_t addr_len = sizeof(struct sockaddr);
+                accept_fd = accept(socket_fd, (struct sockaddr *)&remoteaddr, &addr_len);
+                // Epoll也需要设置为非阻塞
+                int flags = fcntl(accept_fd, F_GETFL, 0);      // 获取flags
+                fcntl(accept_fd, F_SETFD, flags | O_NONBLOCK); // 设置为非阻塞
+                // 将其添加到epoll中去
+                event.events = EPOLLIN || EPOLLET; // 入，边缘触发(数据不必必须读完)
+                event.data.fd = accept_fd;
+                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, accept_fd, &event);
+            }
+            else if (events[i].events & EPOLLIN) // 输入事件
+            {
+                char in_buff[MESSAGE_LEN] = {0};
+                memset(in_buff, 0, MESSAGE_LEN); // 清空inbuff
+                ret = recv(events[i].data.fd, (void *)in_buff, MESSAGE_LEN, 0);
+                if (ret == MESSAGE_LEN) // 缓冲区满了,因为设置了边缘触发
+                {
+                    std::cout << "maybe have data...";
+                }
+                // 接收缓冲区
+                if (ret <= 0)
+                {
+                    switch (errno)
+                    {
+                    case EAGAIN: //说明暂时已经没有数据了，要等通知,继续循环
+                        break;
+                    case EINTR: //被终断了，再接收一次
+                        std::cout << "recv EINTR... " << std::endl;
+                        ret = recv(events[i].data.fd, &in_buff, MESSAGE_LEN, 0);
+                        break;
+                    default:
+                        std::cout << "the client is closed" << std::endl;
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &event);
+                        close(events[i].data.fd);
+                        break;
+                    }
+                }
+                std::cout << "receive:" << in_buff << std::endl;
+                // step6： send back
+                send(events[i].data.fd, (void *)in_buff, MESSAGE_LEN, 0);
+            }
+        }
+    }
+    std::cout << "quit server" << std::endl;
+    close(socket_fd);
+    return 0;
+}
+```
+
+## Epoll + Fork 进一步优化
+##### 问题
+- epoll是单线程的处理IO
+- 目前服务器一般都是多核的
+- CPU数 x 2 + 1
+
 
 ## 通过I/O事件处理库实现高性能网络服务器
